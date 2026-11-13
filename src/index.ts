@@ -1,4 +1,17 @@
-// `wakeit` core entry — intentionally empty.
-// Phase 2 (repository foundation) ships no WakeIt functionality; this module
-// exists so the build, exports map and package validation have a real entry.
-export {};
+// `wakeit` core entry. Explicit allow-list: internal modules are never re-exported.
+export { createWakeIt } from "./core/client";
+export { WakeItConfigError, WakeItReadinessError } from "./core/errors";
+export type {
+  BackendConfig,
+  BackoffConfig,
+  EnsureReadyOptions,
+  GroupConfig,
+  HealthRequestConfig,
+  PollConfig,
+  ReadinessErrorCode,
+  ReadinessReason,
+  ReadinessSnapshot,
+  ReadinessStatus,
+  WakeIt,
+  WakeItConfig,
+} from "./core/types";

@@ -115,7 +115,7 @@
     {
       "name": "wakeit (core)",
       "path": "dist/index.js",
-      "limit": "4 kB",
+      "limit": "6.5 kB",
       "ignore": [
         "react",
         "react-dom",

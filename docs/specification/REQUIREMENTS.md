@@ -49,7 +49,7 @@ V = user value, C = complexity, M = maintenance cost, R = reliability risk (L/M/
 |---|---|---|
 | FR-R1 | Probe a configurable URL with configurable method, headers, per-attempt timeout. | P0 |
 | FR-R2 | Readiness decided by developer `isReady`; default is HTTP 2xx. Works for any JSON shape and empty (204) bodies. | P0 |
-| FR-R3 | Probe retry policy: interval, max attempts, max duration, optional backoff; **bounded by default**. | P0 |
+| FR-R3 | Probe retry policy: interval, max attempts, max duration, optional backoff (AD-19); **bounded by default** (run deadline always applies). | P0 |
 | FR-R4 | Status: `unknown, checking, ready, not-ready, unreachable, offline`, each with a machine-readable reason. | P0 |
 | FR-R5 | Concurrent `ensureReady` callers share one probe loop; one caller aborting does not stop the others. | P0 |
 | FR-R6 | "Ready" is in-memory and time-limited; never persisted. | P0 |
@@ -183,6 +183,12 @@ See [PRODUCT_SPEC §6](PRODUCT_SPEC.md); the OOS and P2 rows above are binding f
 - AC-R5: 10 simultaneous `ensureReady` calls produce at most one probe in flight.
 - AC-R6: After policy limits, polling stops and no timers remain.
 - AC-R7: Each row of §5.4 yields the stated code, retry behavior, and bypassability.
+- AC-R8: A single `backend` is addressed as `"default"`; with only other named backends, `ensureReady()` without an id rejects `WakeItConfigError` listing the ids; an unknown id and "no backend configured" reject `WakeItConfigError` without any probe.
+- AC-R9: Without backoff the retry delay is `intervalMs`; with backoff it follows `min(maxDelayMs, intervalMs × multiplier^(n−1))` shortened by at most `jitter`; never above `maxDelayMs`.
+- AC-R10: One caller's `signal` rejects only that caller (`aborted`); the probe continues while others wait; when none remain the attempt is aborted and timers/listeners are released.
+- AC-R11: Going offline mid-run consumes no attempt; recovery probes immediately; the run deadline still bounds the wait.
+- AC-R12: `getReadiness()` never reports `ready` at or after `validUntil`, with or without subscribers or timers.
+- AC-R13: After `dispose()`: `ensureReady` rejects `aborted`, no timers/listeners remain, no state update or notification occurs.
 
 **Execution and monitoring**
 - AC-M1: `fn` resolving before the threshold never shows the experience.
@@ -197,6 +203,7 @@ See [PRODUCT_SPEC §6](PRODUCT_SPEC.md); the OOS and P2 rows above are binding f
 - AC-B2: With `proceed`, a bypassable failure calls `fn` exactly once; `aborted` and config errors still reject.
 - AC-B3: With valid readiness (within TTL), `fn` starts without any probe.
 - AC-B4: No code path invokes `fn` a second time (asserted across all failure/cancel permutations).
+- AC-B5: With no backend configured, plain `execute(fn)` works; `ensureReady()` and `execute(fn, { readiness })` reject `WakeItConfigError` and `fn` is not invoked.
 
 **Cancellation**
 - AC-K1: Cancel/abort request aborts the signal given to `fn` in the same tick; the caller's own signal is never aborted by WakeIt.

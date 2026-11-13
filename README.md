@@ -1,9 +1,10 @@
 # WakeIt
 
-> **Status: in development. Nothing is implemented or published yet.**
-> The repository currently contains the approved specification and architecture, and the package
-> and tooling foundation. There is no usable API, and the `wakeit` name is provisional and not
-> reserved on npm.
+> **Status: in development. Not published.**
+> Implemented so far: the framework-free core (client, configuration, state store) and backend
+> readiness detection (`ensureReady`, `getReadiness`). Operation monitoring, the React bindings and
+> the waiting experience are not implemented yet, so there is no usable end-to-end product. The
+> `wakeit` name is provisional and not reserved on npm.
 
 WakeIt is planned as a backend-agnostic React SDK that detects when a backend is ready (via
 configurable HTTP health probes), monitors slow application operations, and shows a customizable
@@ -14,11 +15,11 @@ waiting experience. It is intended to work with any HTTP-based backend.
 
 ## Planned entry points
 
-| Import         | Purpose                     | State       |
-| -------------- | --------------------------- | ----------- |
-| `wakeit`       | Framework-free core         | empty entry |
-| `wakeit/react` | Provider, hooks, default UI | empty entry |
-| `wakeit/axios` | Optional Axios adapter      | empty entry |
+| Import         | Purpose                     | State          |
+| -------------- | --------------------------- | -------------- |
+| `wakeit`       | Framework-free core         | readiness only |
+| `wakeit/react` | Provider, hooks, default UI | empty entry    |
+| `wakeit/axios` | Optional Axios adapter      | empty entry    |
 
 ## Development
 

@@ -64,7 +64,7 @@ src/
 │   ├── errors.ts           WakeItReadinessError, WakeItConfigError, brand-based instanceof
 │   ├── env.ts              lazy access to timers / fetch / AbortController / online source
 │   └── types.ts            public + internal types (public subset re-exported by index.ts)
-├── readiness/              controller.ts · run.ts (pure) · probe.ts · policy.ts · validity.ts
+├── readiness/              controller.ts · run.ts (pure) · probe.ts · policy.ts · validity.ts · service.ts (backend selection, controller map)
 ├── execution/              executor.ts · operation.ts (pure) · signals.ts · thresholds.ts
 ├── fetch/                  wrap-fetch.ts   (P1; bundled in the core entry, tree-shakeable)
 ├── experience/             framework-free; bundled into wakeit/react
@@ -152,7 +152,7 @@ Settled operations never appear in snapshots; error objects and responses are ne
 ### 4.3 Type-system direction
 
 - `execute<T>` infers `T` from `fn: (ctx: { signal }) => Promise<T>`; runtime additionally tolerates thenables/plain values (STATE_MACHINES §3.1) without widening the public type.
-- Config is a union with `backend` / `backends` mutually exclusive (`never`-typed counterpart), validated at runtime for JS callers.
+- Config is a union with `backend` / `backends` mutually exclusive (`never`-typed counterpart) and both optional (O-7: no backend means no readiness), validated at runtime for JS callers.
 - Internal types are not exported; `index.ts` has an explicit allow-list.
 - `ExperienceProps` lives in `wakeit/react` types and is built from public snapshot types.
 
@@ -204,6 +204,7 @@ sequenceDiagram
 - **Shared demand-driven run:** at most one probe loop per controller, started by the first waiter and stopped when the last waiter leaves, the policy is exhausted, or the client is disposed. Duplicate probes are impossible by construction.
 - **Probe attempt:** lazily resolved `fetch`; `cache: "no-store"`; developer-supplied method/headers; default credentials mode; the attempt timer covers request **and** `isReady`; stale results are discarded by generation token; the response body is cancelled best-effort after validation.
 - **Classification and evidence:** reasons `rejected`, `invalid-response`, `network-error`, `timeout`, `offline`. A probe **timeout** is *not* proof the backend is unreachable — it is "no usable response within the limit". Status `unreachable` carries reason `timeout` or `network-error`; copy and developer messages key on **reason** (STATE_MACHINES §2.3); error codes keep `timeout` and `unreachable` distinct.
+- **Injection (AD-23):** the engine's internal deps are `fetch` and an online source; timers, `Date.now` and `Math.random` are global and resolved at call time. The store reports subscriber-count changes to the engine so observed-expiry timers exist only while subscribed.
 - **Offline:** listeners exist only during a run. A failed attempt while the online source reports offline is `offline`, consumes no attempt, and waits for `online` (bounded by the run deadline). WakeIt never pre-blocks on `onLine === false`.
 - **Freshness (review A):** validity is stored as `validUntil`. (1) `getReadiness()` **normalizes at read time**, so no snapshot reports `ready` after expiry even if timers are throttled; (2) an **observed-expiry timer** (one per ready backend, only while ≥ 1 subscriber, `unref`'d in Node) commits the normalized state and notifies so hooks update. With no run, operation or subscriber there are no engine timers or listeners.
 

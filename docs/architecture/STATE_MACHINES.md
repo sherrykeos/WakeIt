@@ -71,6 +71,15 @@ stateDiagram-v2
 
 Ignored: `ATTEMPT_*` with a stale token, `INTERVAL_ELAPSED` outside `waiting`, `ONLINE` outside `paused`. The readiness controller does **not** emit operation outcomes; it only resolves/rejects/releases waiters. Outcome events come from the operation layer (§3).
 
+**Implementation notes (Phase 4).**
+- `attempts` counts attempts that finished `ready` or failed for a reason other than `offline`; `maxAttempts` is compared to it. A run that ends `ready` reports the successful attempt in `attempts`.
+- The first attempt starts immediately; every retry waits `retryDelay(failedAttempts)` (AD-19). `ONLINE` resumes with an immediate attempt.
+- `DEADLINE` also covers an attempt still in flight. With no evidence from this run yet, the abandoned attempt becomes the evidence: status `unreachable`, reason `timeout`, code `timeout`.
+- Only the `online` event is listened to (`offline` is detected from the failed attempt), and only while a run exists.
+- When the last waiter leaves, a status still at `checking` is restored to its pre-run snapshot; failure evidence is kept. Disposal does the same without notifying.
+- A caller's abort signal removes only its waiter; the shared run is untouched while others wait. `ensureReady` with a pre-aborted signal rejects `aborted` even if readiness is fresh.
+- Until the execution phase, `ensureReady` is not tracked as an operation (no threshold or experience).
+
 ### 2.2 Validity region (freshness)
 
 ```mermaid
@@ -85,7 +94,7 @@ stateDiagram-v2
 **Public guarantee: no snapshot returned by `getReadiness()` reports `ready` at or after `validUntil`.** Two cooperating mechanisms:
 
 1. **Read-time normalization (truth).** `getReadiness(b)` derives from stored state and the current time: if stored `status` is `ready` and `now ≥ validUntil`, it returns the *expired* snapshot (`status: "unknown"`, `reason: "expired"`, `checkedAt` kept, `validUntil` absent). The derived object is cached per (store version, expired) so repeated reads are identity-stable. Needs no timer; correct even if timers are throttled (background tabs).
-2. **Observed-expiry timer (notification).** A single one-shot timer per `ready` backend is armed **only while the store has ≥ 1 public subscriber**: at commit of `ready` (if observed) or at first subscribe (if ready-valid). On fire it re-checks `now ≥ validUntil` (re-arms for the remainder if early), commits the normalized state and notifies, so hooks re-render. It is cleared when status leaves `ready`, at last unsubscribe, and at dispose. In Node-like runtimes it is `unref`'d so it never keeps a process alive (probe timers are **not** unref'd).
+2. **Observed-expiry timer (notification).** A single one-shot timer per `ready` backend is armed **only while the store has ≥ 1 public subscriber**: at commit of `ready` (if observed) or at first subscribe (if ready-valid). On fire it re-checks `now ≥ validUntil` (re-arms for the remainder if early), commits the normalized state and notifies, so hooks re-render. It is cleared when status leaves `ready`, at last unsubscribe, and at dispose. The store reports public-subscriber count changes to the engine, which re-syncs the timer (arm on 0→1 while fresh, clear on →0); renewing readiness re-arms it for the new `validUntil`. In Node-like runtimes it is `unref`'d so it never keeps a process alive (probe timers are **not** unref'd).
 
 Resulting idle profile: with no run, no tracked operation and no subscriber, the engine owns **zero timers/listeners**. With subscribers, at most one expiry timer per ready backend and no network activity.
 
@@ -118,7 +127,7 @@ Reason → error code mapping is in the last column. Bypassable by `proceed`: al
 
 ## 3. Operation lifecycle (one per tracked `execute` / `ensureReady` call)
 
-**Pre-creation guard.** Option/`fn` validation and the environment check happen first. A failure here **creates no operation**, invokes nothing, and is delivered as a **rejected promise** with `WakeItConfigError` (never a synchronous throw from `execute`/`ensureReady`; `createWakeIt` itself throws synchronously). `ensureReady` with valid readiness resolves without creating an operation.
+**Pre-creation guard.** Option/`fn` validation and the environment check happen first. A failure here **creates no operation**, invokes nothing, and is delivered as a **rejected promise** with `WakeItConfigError` (never a synchronous throw from `execute`/`ensureReady`; `createWakeIt` itself throws synchronously). A readiness request when **no backend is configured** (`ensureReady`, or `execute` with `readiness`) is the same kind of failure (O-7): rejected `WakeItConfigError`, `fn` not invoked, nothing created. `ensureReady` with valid readiness resolves without creating an operation.
 
 Regions: **Stage**, **Slowness**, **Cancel**.
 
@@ -173,7 +182,7 @@ Settle effects (fixed order): record outcome → clear threshold timer → remov
 | 12 | **Re-entrancy** | `fn` may call `execute` (separate operation), `cancel`, `getOperations`, `dispose`: handled by the table above (stage is already `running`; dispose follows §1). |
 | 13 | **Pre-aborted caller signal, no readiness** | `fn` is invoked once with an already-aborted engine signal; WakeIt fabricates no rejection. |
 | 14 | **Pre-aborted caller signal, with readiness** | Rejects `WakeItReadinessError("aborted")`; `fn` is **never** invoked — even if readiness is currently valid and no wait would be needed. |
-| 15 | **Call-time invalid options / non-function `fn`** | Rejected `WakeItConfigError`; `fn` not invoked; no operation, timer, or listener created. |
+| 15 | **Call-time invalid options / non-function `fn` / readiness requested with no backend configured** | Rejected `WakeItConfigError`; `fn` not invoked; no operation, timer, or listener created. |
 
 ## 4. Experience (controller; framework-free; outside the core)
 

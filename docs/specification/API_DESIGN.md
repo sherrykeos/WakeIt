@@ -63,7 +63,7 @@ useWakeItOperations()     // reactive list of tracked operations (for custom UI)
 
 ```ts
 createWakeIt({
-  backend: BackendConfig,                  // or `backends: Record<string, BackendConfig>` (P1)
+  backend?: BackendConfig,                 // or `backends: Record<string, BackendConfig>` (P1); both optional (O-7)
   thresholdMs?: number,                    // provisional default: 1500
 })
 ```
@@ -72,9 +72,11 @@ createWakeIt({
 |---|---|
 | `health` | URL or `{ url, method?, headers?, timeoutMs? }`. |
 | `isReady` | `(res: Response) => boolean \| Promise<boolean>`. Default: HTTP 2xx. Any format is the developer's call. |
-| `poll` | `{ intervalMs?, maxAttempts?, maxDurationMs?, backoff? }` — **probe** retry policy only. |
+| `poll` | `{ intervalMs?, maxAttempts?, maxDurationMs?, backoff? }` — **probe** retry policy only. `backoff`: `true` or `{ multiplier?, maxDelayMs?, jitter? }` (exponential from `intervalMs`, jitter only shortens delays); details and defaults in [DECISIONS AD-19](../architecture/DECISIONS.md). Always bounded by `maxDurationMs`. |
 | `mayColdStart` | Developer's declaration that this backend may sleep; gates cold-start wording ([REQUIREMENTS §5.2](REQUIREMENTS.md)). |
 | `readyTtlMs` | In-memory validity of a "ready" result. |
+
+**No backend configured (owner decision O-7).** `backend` and `backends` are both optional (at most one). A client without a backend supports plain `execute(fn)` (monitoring only). `ensureReady()` and `execute(fn, { readiness })` reject with `WakeItConfigError` **before** `fn` is invoked or any operation is created; they never fall back to "no readiness". `poll.backoff` is not part of the configuration yet; its shape is an unresolved Phase 4 decision.
 
 The default threshold of **1500 ms is provisional** pending validation (ROADMAP Phase 0.5). Config errors throw `WakeItConfigError` at `createWakeIt`.
 
@@ -124,6 +126,27 @@ await wakeit.execute(fn, { readiness: true });    // (c) readiness, then fn exac
 ### 4.3 Experience and readiness failure
 
 When a waiting call rejects with a readiness error after the user has seen the experience, the experience may show a `readiness-failed` phase (dismissible, with **Check again**, which re-probes the backend only — it never re-runs any operation). Suppress with `experience: false`.
+
+### 4.4 `ensureReady` and `getReadiness` (Phase 4 contract)
+
+```ts
+ensureReady(opts?: { backend?: string; signal?: AbortSignal }): Promise<void>
+getReadiness(backend?: string): ReadinessSnapshot
+```
+
+| Aspect | Contract |
+|---|---|
+| Backend selection | A single `backend` has the id `"default"`; named `backends` use their keys. Without `backend`, `"default"` is used **only if it exists**; otherwise the call fails with `WakeItConfigError` listing the configured ids. No backend is ever chosen implicitly or arbitrarily (AD-18). |
+| Failures | `ensureReady` never throws synchronously. It rejects `WakeItConfigError` for: no backend configured, unknown or non-string backend id, invalid options, no `fetch`/`AbortController` available. `getReadiness` throws `WakeItConfigError` for the first three. |
+| Readiness | Transport success is not readiness: the default validator accepts HTTP 2xx (so `204` is ready), a custom `isReady` decides alone and must return exactly `true` or `false` (anything else, or a throw, is `invalid-response`). |
+| Shared run | Concurrent callers for one backend share one probe run and its budget. `signal` removes **only that caller's wait** (rejects `aborted`); the run stops when the last waiter leaves. A pre-aborted signal rejects `aborted` immediately, even when readiness is fresh. |
+| Freshness | A result is valid for `readyTtlMs` (`validUntil`). `getReadiness` never returns `ready` at or after `validUntil` (it returns `unknown`/`expired`). `ensureReady` at or after `validUntil` starts a new shared run. |
+| Offline | A network failure while the environment reports offline is `offline`, consumes no attempt, and pauses probing until connectivity returns; the run deadline still bounds the wait. |
+| Timeout | `timeout` means no usable response within the limit; it does not prove the backend is down or asleep. |
+| After `dispose()` | `ensureReady` rejects `aborted`; `getReadiness` keeps returning the last snapshot; no further notifications. |
+| Not yet | Tracking `ensureReady` as an operation (threshold, experience) and `execute({ readiness })` arrive with the execution phase. |
+
+`ReadinessSnapshot`: `{ backend, status, reason?, attempts, checkedAt?, validUntil? }`, frozen and identity-stable until it changes. `attempts` counts finished probe attempts of the current run (offline waits excluded).
 
 ## 5. Usage examples
 
@@ -259,8 +282,8 @@ Observes through interceptors; does not alter config, responses, or errors beyon
 
 | Type | When |
 |---|---|
-| `WakeItReadinessError` — `code`: `not-ready` · `unreachable` · `offline` · `timeout` · `invalid-response` · `aborted`; plus `attempts`, `elapsedMs` | `ensureReady`, or `execute` with `readiness`, **before `fn` is invoked**. |
-| `WakeItConfigError` | Invalid configuration/options, thrown before any operation starts. |
+| `WakeItReadinessError` — `code`: `not-ready` · `unreachable` · `offline` · `timeout` · `invalid-response` · `aborted`; plus `backend`, `attempts`, `elapsedMs` | `ensureReady`, or `execute` with `readiness`, **before `fn` is invoked**. `aborted` also covers client disposal. Messages are fixed text; no URL, header, body or `cause` is ever attached (AD-24). |
+| `WakeItConfigError` | Invalid configuration/options, thrown before any operation starts; also `ensureReady`/`execute({ readiness })` called when no backend is configured (O-7). |
 | *(none)* | Anything after `fn` starts, and all fetch/Axios failures: the application's own errors, untouched. |
 
 ## 9. Not in the v1 API

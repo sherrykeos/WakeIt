@@ -1,10 +1,13 @@
 import { fileURLToPath } from "node:url";
 import { ESLint } from "eslint";
 import tseslint from "typescript-eslint";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 // Proves the architecture boundary rules (ARCHITECTURE §2, eslint.config.js)
 // actually fire, using virtual files so no placeholder source has to exist.
+// The first ESLint run loads the TypeScript resolver and can be slow on a busy machine.
+vi.setConfig({ testTimeout: 30_000 });
+
 const cwd = fileURLToPath(new URL("../..", import.meta.url));
 
 const eslint = new ESLint({

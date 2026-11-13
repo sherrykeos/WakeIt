@@ -7,7 +7,12 @@ describe("package foundation (source entries)", () => {
     // Node environment: `window` is undefined. Importing must not throw.
     expect(typeof (globalThis as Record<string, unknown>)["window"]).toBe("undefined");
     const core = await import("../../src/index");
-    expect(Object.keys(core)).toEqual([]);
+    // Explicit public allow-list: nothing internal may leak from the core entry.
+    expect(Object.keys(core).sort()).toEqual([
+      "WakeItConfigError",
+      "WakeItReadinessError",
+      "createWakeIt",
+    ]);
   });
 
   it("imports the react and axios entries", async () => {

@@ -1,0 +1,5 @@
+# Approved documentation is owned by its own review process; do not reformat it.
+docs/
+dist/
+coverage/
+pnpm-lock.yaml

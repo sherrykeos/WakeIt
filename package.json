@@ -1,0 +1,137 @@
+{
+  "name": "wakeit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Backend-agnostic readiness detection and waiting experiences for React apps. Work in progress.",
+  "keywords": [
+    "react",
+    "readiness",
+    "health-check",
+    "cold-start",
+    "loading",
+    "backend"
+  ],
+  "homepage": "https://github.com/sherrykeos/WakeIt#readme",
+  "bugs": {
+    "url": "https://github.com/sherrykeos/WakeIt/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sherrykeos/WakeIt.git"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./react": {
+      "import": {
+        "types": "./dist/react.d.ts",
+        "default": "./dist/react.js"
+      },
+      "require": {
+        "types": "./dist/react.d.cts",
+        "default": "./dist/react.cjs"
+      }
+    },
+    "./axios": {
+      "import": {
+        "types": "./dist/axios.d.ts",
+        "default": "./dist/axios.js"
+      },
+      "require": {
+        "types": "./dist/axios.d.cts",
+        "default": "./dist/axios.cjs"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "packageManager": "pnpm@10.34.9",
+  "scripts": {
+    "dev": "tsdown --watch",
+    "build": "tsdown",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check:dist": "node scripts/check-dist.mjs",
+    "size": "size-limit",
+    "pack:check": "publint && attw --pack . --profile node16 && node scripts/check-pack.mjs",
+    "verify": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm build && pnpm check:dist && pnpm pack:check && pnpm size"
+  },
+  "peerDependencies": {
+    "axios": "^1.0.0",
+    "react": "^18.0.0 || ^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "axios": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "0.18.5",
+    "@eslint/js": "10.0.1",
+    "@size-limit/preset-small-lib": "14.3.0",
+    "@testing-library/dom": "10.4.2",
+    "@testing-library/react": "16.3.3",
+    "@types/node": "^24.19.2",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@vitest/coverage-v8": "5.1.0",
+    "axios": "1.21.1",
+    "eslint": "^10.14.0",
+    "eslint-import-resolver-typescript": "4.4.5",
+    "eslint-plugin-import-x": "4.18.1",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "globals": "17.14.0",
+    "jsdom": "31.0.1",
+    "prettier": "3.10.1",
+    "publint": "0.3.25",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "size-limit": "14.3.0",
+    "tsdown": "0.23.7",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.2",
+    "vitest": "5.1.0"
+  },
+  "size-limit": [
+    {
+      "name": "wakeit (core)",
+      "path": "dist/index.js",
+      "limit": "4 kB",
+      "ignore": [
+        "react",
+        "react-dom",
+        "axios"
+      ],
+      "gzip": true
+    },
+    {
+      "name": "wakeit/react",
+      "path": "dist/react.js",
+      "limit": "10 kB",
+      "ignore": [
+        "react",
+        "react-dom"
+      ],
+      "gzip": true
+    }
+  ]
+}

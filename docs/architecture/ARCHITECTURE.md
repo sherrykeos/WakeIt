@@ -65,7 +65,7 @@ src/
 │   ├── env.ts              lazy access to timers / fetch / AbortController / online source
 │   └── types.ts            public + internal types (public subset re-exported by index.ts)
 ├── readiness/              controller.ts · run.ts (pure) · probe.ts · policy.ts · validity.ts · service.ts (backend selection, controller map)
-├── execution/              executor.ts · operation.ts (pure) · signals.ts · thresholds.ts
+├── execution/              executor.ts (Phase 5: options, operation lifecycle, signals, thresholds, ReadinessPort; kept in one module, see DECISIONS D-5.8)
 ├── fetch/                  wrap-fetch.ts   (P1; bundled in the core entry, tree-shakeable)
 ├── experience/             framework-free; bundled into wakeit/react
 │   └── reducer.ts · controller.ts · copy.ts (evidence → message selection)
@@ -214,6 +214,14 @@ sequenceDiagram
 - **Invocation contract** (STATE_MACHINES §3.1): synchronous invocation when no wait is needed; exactly once via a single-use stage transition; synchronous throws become rejections with the thrown value itself; native promises, thenables and plain values are handled by standard promise resolution; the returned promise is derived (value/reason identity guaranteed, microtask timing not); cleanup after immediate failure uses the same settle path; cleanup/subscriber errors are contained.
 - **Signals:** engine-owned `AbortController` per operation; caller's signal linked **manually** (listener + cleanup), never aborted by WakeIt; pre-aborted behavior: plain ⇒ `fn` invoked once with an aborted signal; combined ⇒ reject `aborted`, `fn` never invoked (O-4).
 - **Thresholds:** `thresholds.ts` resolves call > group > client > default (O-2).
+
+### 7.1 Phase 5 as built
+
+- `execution/executor.ts` is the only execution module. It depends on readiness solely through `ReadinessPort` (`prepare`, `read`, `ensureReady`), which `core/engine.ts` adapts from the readiness service; lint keeps `execution` and `readiness` from importing each other.
+- Operations live in `CoreState.operations` (frozen array of frozen snapshots; the empty list is a shared constant). The store takes an optional `equals`, so an operation added and removed within one synchronous frame is not an observable change.
+- Each operation owns one `AbortController`, one optional threshold timer and one caller-signal listener, all released in a single `settle` step. The executor registers one scope cleanup that stops threshold timers on disposal.
+- `operation-settled` events are queued in the store (producer: executor; consumer: Phase 6). The symbol-keyed accessor on the client is **not** attached yet (D-5.2).
+- Measured core entry after Phase 5: 7.28 kB min+gzip (+1.42 kB over Phase 4).
 
 ## 8. State store, React integration and SSR
 

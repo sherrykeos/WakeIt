@@ -78,7 +78,7 @@ Ignored: `ATTEMPT_*` with a stale token, `INTERVAL_ELAPSED` outside `waiting`, `
 - Only the `online` event is listened to (`offline` is detected from the failed attempt), and only while a run exists.
 - When the last waiter leaves, a status still at `checking` is restored to its pre-run snapshot; failure evidence is kept. Disposal does the same without notifying.
 - A caller's abort signal removes only its waiter; the shared run is untouched while others wait. `ensureReady` with a pre-aborted signal rejects `aborted` even if readiness is fresh.
-- Until the execution phase, `ensureReady` is not tracked as an operation (no threshold or experience).
+- `ensureReady` is still not tracked as an operation after Phase 5 (D-5.7).
 
 ### 2.2 Validity region (freshness)
 
@@ -163,6 +163,13 @@ stateDiagram-v2
 `cancel(id)` for an unknown, settled, or non-cancellable id is a silent no-op.
 
 Settle effects (fixed order): record outcome → clear threshold timer → remove caller-signal listener / leave waiter list → commit removal → queue `operation-settled` {id, kind, group, backend?, outcome, origin, code?, slowness-at-settle} (no error objects) → settle caller promise.
+
+**Implementation notes (Phase 5).**
+- The operation machine is encoded in the executor as single-use transitions guarded by a `settled` flag and the snapshot `stage` / `cancelRequested` fields, not as a separate pure reducer. Behavior equals the tables above; the deviation from "pure transitions" (section 0) is recorded in DECISIONS D-5.8.
+- There is no separate `BYPASS` event: a bypassable failure reaches the same single-use invocation. The final abort check reads the operation's own controller (aborted by the caller's signal or `cancel(id)`) and the engine's disposed flag.
+- When readiness is fresh at the call, `fn` is invoked synchronously (row 1). Otherwise `ensureReady` is awaited with the operation's own signal, so caller aborts, `cancel(id)` and disposal all travel through one mechanism: the readiness waiter leaves and rejects `aborted`.
+- An operation that begins and ends in one synchronous frame notifies nobody (store `equals`).
+- The settled event is queued for every settlement while the client is active; after disposal the store drops events.
 
 ### 3.1 Invocation contract (exact behavior of `execute`)
 

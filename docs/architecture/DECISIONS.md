@@ -236,3 +236,30 @@ Status values and codes keep their approved hyphenated spelling (`not-ready`). P
 ### R-1 update after Phase 4 (core size re-baselined)
 
 Core entry: **5.86 kB min+gzip** (2.52 kB after Phase 3, +3.3 kB for readiness). Approximate standalone contributions: config validation 2.4 kB (backoff and timer-range checks added 0.6 kB), readiness subsystem about 3.3 kB (run reducer 0.7, controller about 1.0, service and its fixed error messages about 0.8, probe/validity/policy about 0.7, env and the second error class the rest), store 0.6 kB. No code was removed to meet the old figure. The `size-limit` core limit is changed from 4 kB to **6.5 kB** as a *ratchet* just above the measured size: it still catches regressions but does **not** pre-approve Phase 5, whose execution engine, operation machine and `wrapFetch` will exceed it. **Open owner decision:** set the real v1 budget at the end of Phase 5 (the original "about 4 kB core" no longer fits; AD-17's fallback of loosening the pure-machine style is not attractive because it would trade away the tested transition tables).
+
+## 8. Phase 5 decisions (execution engine)
+
+Approved by the owner on 2026-11-14 in response to three conflicts between the Phase 5 brief and the approved documents (D-5.1 to D-5.3). The rest are engineering decisions.
+
+| ID | Decision | Rationale and consequences |
+|---|---|---|
+| D-5.1 | **Lifecycle stays the approved model** (AD-9, API 4.1): `stage`, `slowness` and `cancelRequested`; settled operations are removed. **No** `succeeded`, `failed` or `cancelled` state and no retention. | The brief suggested retained terminal states including `cancelled`. WakeIt cannot know an abort caused a rejection, so a `cancelled` claim would be false; retention adds a memory policy with no consumer. Outcomes reach observers through `operation-settled`. |
+| D-5.2 | **Internal channel: emit now, attach in Phase 6.** The executor queues `operation-settled` into the store's existing event queue. The symbol-keyed accessor is not attached until the React controller exists. Resolves the open question in "AD-1 clarification". | The event carries information public snapshots cannot (outcome, origin and code of an operation that was removed). Snapshot diffing is ambiguous with concurrent operations; a public emitter is permanent API without a developer use case. Attaching now would freeze a surface with no consumer. When attached it stays versioned, instance-borne and unexported (AD-1, R-5). |
+| D-5.3 | **`fn` type widens** to `(ctx) => T \| PromiseLike<T>`; result `Promise<Awaited<T>>`. | Sync functions type-check; behavior matches AD-7. Amends API 2 and 4.2. |
+| D-5.4 | **`OperationSnapshot` is public** (returned by `getOperations`) and gains `experience: boolean`. | Without it `experience: false` would be accepted and silently dropped. Additive; documented in API 4.5. Not covered by the three approved answers: please confirm. |
+| D-5.5 | **Cancellation without `AbortSignal.any`**: one `AbortController` per operation; the caller's signal is linked by a listener removed once at settlement; `cancel(id)` and caller aborts share one idempotent `request()` that sets `cancelRequested` before aborting. Readiness waits use the operation's signal. | Every cause of a readiness-stage abort travels through the same waiter removal, and the final abort check closes the window between readiness resolving and invocation. |
+| D-5.6 | **`proceed` is implemented narrowly**: readiness codes other than `aborted` only; never after an abort or disposal; never for configuration errors; no change to the wait. | Matches API 4.2 and REQUIREMENTS 5.4. No new fallback semantics. |
+| D-5.7 | **`ensureReady` tracking stays deferred.** | It needs `group` / `thresholdMs` options that do not exist on `EnsureReadyOptions`, changes Phase 4 behavior and has no consumer before the experience layer. **Open:** decide in Phase 6 with the experience controller. |
+| D-5.8 | **No separate pure operation reducer.** | The executor encodes the transitions as single-use guarded steps. Behavior and invariants are covered through the real engine and through a fake `ReadinessPort` for exact race windows. Revisit if Phase 6 needs the table. |
+| D-5.9 | **Store `equals` option.** | Prevents a notification for a no-op frame (add and remove in one synchronous run) without changing the default `Object.is` contract. |
+| D-5.10 | **Size ratchet raised from 6.5 kB to 7.5 kB.** Measured 7.28 kB. | Same ratchet policy as R-1 (just above measured, still catches regressions). No correctness code was removed. **Open owner decision:** the real v1 budget, and whether `wrapFetch` (P1) fits. |
+
+### Error types and codes after Phase 5
+
+No new classes (AD-8, O-9). Before `fn` starts, `execute` can reject only with `WakeItConfigError` (invalid usage, no/unknown/ambiguous backend, missing `fetch` or `AbortController`) or `WakeItReadinessError` with `code` in `not-ready`, `unreachable`, `offline`, `timeout`, `invalid-response` or `aborted` (caller abort, `cancel(id)`, disposal). After `fn` starts, every rejection is the application's own value.
+
+### Remaining risks
+
+- A function that never settles keeps its operation tracked until it does (a per-operation timeout is P2).
+- A thenable's `then` is invoked once by standard promise resolution, one microtask later than for a native promise: identity of value and reason is guaranteed, timing is not (AD-7).
+- Notifications are coalesced per microtask; a synchronous add and remove is invisible to subscribers by design.

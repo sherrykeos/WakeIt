@@ -22,7 +22,9 @@ createWakeIt(config): WakeIt
 
 interface WakeIt {
   ensureReady(opts?: { backend?: string; signal?: AbortSignal }): Promise<void>;
-  execute<T>(fn: (ctx: { signal: AbortSignal }) => Promise<T>, opts?: ExecuteOptions): Promise<T>;
+  execute<T>(fn: (ctx: { signal: AbortSignal }) => T | PromiseLike<T>, opts?: ExecuteOptions): Promise<Awaited<T>>;
+  getOperations(): readonly OperationSnapshot[];   // approved O-1 / A-1
+  cancel(operationId: string): void;               // approved O-1 / A-1
   getReadiness(backend?: string): ReadinessSnapshot;
   subscribe(listener: () => void): () => void;
   dispose(): void;
@@ -144,9 +146,33 @@ getReadiness(backend?: string): ReadinessSnapshot
 | Offline | A network failure while the environment reports offline is `offline`, consumes no attempt, and pauses probing until connectivity returns; the run deadline still bounds the wait. |
 | Timeout | `timeout` means no usable response within the limit; it does not prove the backend is down or asleep. |
 | After `dispose()` | `ensureReady` rejects `aborted`; `getReadiness` keeps returning the last snapshot; no further notifications. |
-| Not yet | Tracking `ensureReady` as an operation (threshold, experience) and `execute({ readiness })` arrive with the execution phase. |
+| Not yet | Tracking `ensureReady` as an operation (threshold, experience) is **still deferred** (Phase 5 decision D-5.7): it has no consumer until the experience layer, and `ensureReady` has no `group`/`thresholdMs` options. `execute({ readiness })` shipped in Phase 5 (§4.5). |
 
 `ReadinessSnapshot`: `{ backend, status, reason?, attempts, checkedAt?, validUntil? }`, frozen and identity-stable until it changes. `attempts` counts finished probe attempts of the current run (offline waits excluded).
+
+### 4.5 `execute`, `getOperations` and `cancel` (Phase 5 contract)
+
+```ts
+execute<T>(fn: (ctx: { signal: AbortSignal }) => T | PromiseLike<T>, options?: ExecuteOptions): Promise<Awaited<T>>
+getOperations(): readonly OperationSnapshot[]
+cancel(operationId: string): void
+```
+
+| Aspect | Contract |
+|---|---|
+| Typing | `fn` may return a value or a promise (owner decision D-5.3, amends §2). The result type is `Awaited<T>`; a plain value is returned as a fulfilled promise. |
+| Never throws synchronously | Every failure is a rejection. Invalid options, a non-function `fn`, no `AbortController`, and readiness requested with no/unknown/ambiguous backend or no `fetch` reject `WakeItConfigError` with `fn` uninvoked and **no operation created**. |
+| Invocation | `fn` is invoked **synchronously inside `execute`** when no wait is needed (plain, or readiness currently fresh); otherwise after the readiness wait. Exactly once. |
+| Promise integrity | After `fn` starts, the returned promise settles only from `fn`'s outcome: the same value, or the same thrown/rejected value (any type), never replaced, retried, raced or wrapped. Synchronous throws become rejections of the thrown value. Thenables and plain returns are tolerated. State commits, events, subscribers and cleanup are individually contained: their failures go to the error reporter and can never replace or delay the business outcome. Request and response bodies are never touched. |
+| Operation identity | `OperationSnapshot.id` is `op-<n>`, unique per client, stable for the operation's life. |
+| `OperationSnapshot` | `{ id, kind, group, backend?, stage: "awaiting-readiness" \| "running", slowness: "quiet" \| "slow", startedAt, cancellable, cancelRequested, experience }`. Frozen; a changed operation gets a new object, untouched ones keep identity. `group` defaults to `"default"`; `backend` is set only for readiness operations; `experience` is `false` for `experience: false` calls (honored by UI layers, not the core). `kind` is `"request"` in Phase 5. |
+| `getOperations()` | Live operations in start order. Settled operations are removed (no `succeeded`/`failed`/`cancelled` states are retained, owner decision D-5.1). After `dispose()` it keeps returning the last snapshot. |
+| `cancel(id)` | A cancellation *request*: aborts the operation's signal and sets `cancelRequested`. Silent no-op for an unknown id, a settled operation, a non-`cancellable` operation, and after `dispose()`. Idempotent. Before `fn` starts it is real (rejects `aborted`, `fn` never invoked); after, `fn` decides and the outcome stays `fn`'s. |
+| `signal` option | Caller-owned. Aborting it aborts the signal given to `fn` (with the same reason) and any readiness wait; WakeIt never aborts it. Composition is manual (no `AbortSignal.any`); the listener is removed exactly once at settlement. Already aborted: plain `execute` invokes `fn` once with an aborted signal; combined rejects `aborted` without invoking `fn`, even if readiness is fresh. |
+| `readiness` | `true` or `{ backend?, onFailure? }`. Sequence: validate, resolve backend, register the operation (`awaiting-readiness`), wait (`ensureReady` with the operation's own signal), final abort/disposal check, set `running`, invoke `fn`. Backend readiness alone never completes an operation. |
+| `onFailure: "proceed"` | Invokes `fn` once after `not-ready`, `unreachable`, `offline`, `timeout` or `invalid-response`. Never bypasses an abort (caller, `cancel`, or disposal) or a configuration error; does not shorten the wait; no retry. The failure stays visible in `getReadiness()`. |
+| Disposal | Awaiting operations reject `WakeItReadinessError("aborted")` (message says disposed) and never invoke `fn`. Running operations are untouched: threshold timers stop, `fn` and the caller-signal link continue, the outcome is delivered, nothing is committed or notified. Afterwards plain `execute` passes through untracked; readiness `execute` rejects `aborted`; `cancel` is a no-op. |
+| Group thresholds | `thresholdMs` resolves once at creation: call > `groups[group]` > client > 1500. The clock starts at the `execute` call. |
 
 ## 5. Usage examples
 
@@ -284,6 +310,7 @@ Observes through interceptors; does not alter config, responses, or errors beyon
 |---|---|
 | `WakeItReadinessError` — `code`: `not-ready` · `unreachable` · `offline` · `timeout` · `invalid-response` · `aborted`; plus `backend`, `attempts`, `elapsedMs` | `ensureReady`, or `execute` with `readiness`, **before `fn` is invoked**. `aborted` also covers client disposal. Messages are fixed text; no URL, header, body or `cause` is ever attached (AD-24). |
 | `WakeItConfigError` | Invalid configuration/options, thrown before any operation starts; also `ensureReady`/`execute({ readiness })` called when no backend is configured (O-7). |
+| `WakeItConfigError` also | `execute` options that are invalid (unknown key, wrong type, non-function `fn`). Delivered as a rejection, never a sync throw. |
 | *(none)* | Anything after `fn` starts, and all fetch/Axios failures: the application's own errors, untouched. |
 
 ## 9. Not in the v1 API

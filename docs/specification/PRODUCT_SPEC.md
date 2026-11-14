@@ -67,6 +67,8 @@ Findings:
 - **Safety:** the only mode that delays an application operation is the combined one. It must never start the operation twice or after an abort, and rejects without running it when readiness fails (exact contract: [API_DESIGN §4.2](API_DESIGN.md); failure classes: [REQUIREMENTS §5.4](REQUIREMENTS.md)).
 - **Lifecycle difference:** readiness is *shared and long-lived* (one probe loop serves many callers, state persists in memory); monitoring is *per-operation and short-lived*.
 
+**Phase 5 status:** `execute(fn, options)`, `getOperations()` and `cancel(operationId)` are implemented in the core (API_DESIGN §4.5). Operations expose `cancelRequested`, never `cancelled`; the returned promise is always the application's own outcome.
+
 **Recommendation:** expose **two primitives** — `ensureReady()` and `execute()` — and express combined behavior as an option: `execute(fn, { readiness: true })`. `runWhenReady` is not a public API in v1. Details in [API_DESIGN](API_DESIGN.md).
 
 ## 6. Product boundaries — WakeIt v1 is NOT

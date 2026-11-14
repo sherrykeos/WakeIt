@@ -62,7 +62,7 @@ V = user value, C = complexity, M = maintenance cost, R = reliability risk (L/M/
 |---|---|---|
 | FR-M1 | `execute` invokes `fn` **at most once** (zero times if readiness fails or is aborted first) and returns its value unchanged. | P0 |
 | FR-M2 | `fn`'s rejection is rethrown as the **same object**. After `fn` starts, WakeIt never throws its own errors. | P0 |
-| FR-M3 | Operation state: `pending`, `slow` (past threshold), `settled` with outcome `fulfilled \| rejected`, plus `cancelRequested`. **No `cancelled` state.** | P0 |
+| FR-M3 | Operation state: `stage` (`awaiting-readiness` \| `running`), `slowness` (`quiet` \| `slow`, past threshold) and `cancelRequested`; settling removes the operation and queues an internal `operation-settled` event with the outcome (`fulfilled \| rejected`). **No `cancelled`, `succeeded` or `failed` state** (D-5.1). | P0 |
 | FR-M4 | Threshold configurable globally, per group, per call. Provisional default 1500 ms. | P0 |
 | FR-M5 | Cancellation follows API §4.1 exactly (dismiss ≠ request ≠ actual cancellation; no fabricated results). | P0 |
 | FR-M6 | Combined execution follows API §4.2 (readiness then single invocation; reject by default; explicit `proceed`). | P0 |
@@ -71,6 +71,7 @@ V = user value, C = complexity, M = maintenance cost, R = reliability risk (L/M/
 | FR-M9 | Groups provide thresholds and filtering for custom UI; `experience:false` monitors without UI. | P0 |
 | FR-M10 | `wrapFetch` meets the compatibility contract in API §6. | P1 |
 | FR-M11 | Axios interceptor integration with equivalent guarantees (API §7). | P1 |
+| FR-M12 | `getOperations()` returns frozen, identity-stable snapshots of live operations; `cancel(id)` is an idempotent request that is a no-op for unknown, settled and non-`cancellable` operations (A-1). | P0 |
 
 ### Experience (FR-X)
 

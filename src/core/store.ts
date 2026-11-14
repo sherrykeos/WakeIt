@@ -31,7 +31,13 @@ export interface Store<S, E> {
   dispose(): void;
 }
 
-export interface StoreOptions {
+export interface StoreOptions<S = unknown> {
+  /**
+   * Decides whether two states are the same for notification purposes. Default `Object.is`.
+   * A commit that only restores an equal state (an operation added and removed in one
+   * synchronous run) then notifies nobody.
+   */
+  readonly equals?: (a: S, b: S) => boolean;
   /** Called synchronously after a subscriber is added or removed (not on dispose). */
   readonly onSubscriberCountChange?: (count: number) => void;
 }
@@ -51,13 +57,14 @@ function freezeShallow<T>(value: T): T {
 export function createStore<S, E>(
   initial: S,
   reportError: ErrorReporter,
-  options: StoreOptions = {},
+  options: StoreOptions<S> = {},
 ): Store<S, E> {
   let state = freezeShallow(initial);
   let notified = state; // the state subscribers were last called for
   let disposed = false;
   let scheduled = false;
   let flushing = false;
+  const equals = options.equals ?? Object.is;
 
   // Entries (not bare functions) so the same function can subscribe twice independently.
   const listeners = new Set<{ readonly call: () => void }>();
@@ -111,7 +118,7 @@ export function createStore<S, E>(
     if (disposed) return;
     flushing = true;
     try {
-      for (let pass = 0; queue.length > 0 || state !== notified; pass++) {
+      for (let pass = 0; queue.length > 0 || !equals(state, notified); pass++) {
         if (pass === MAX_PASSES) {
           reportSafely(
             reportError,
@@ -121,10 +128,10 @@ export function createStore<S, E>(
         }
         drainEvents();
         if (disposed) return;
-        if (state !== notified) {
+        if (!equals(state, notified)) {
           notified = state; // set first: commits made by listeners start a new pass
           notifySubscribers();
-        }
+        } else notified = state;
         if (disposed) return;
       }
     } finally {

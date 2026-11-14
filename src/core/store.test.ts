@@ -439,3 +439,23 @@ describe("dispose", () => {
     }
   });
 });
+
+describe("equals option", () => {
+  it("does not notify when a commit only restores an equal state, but does for a real change", async () => {
+    const store = createStore<{ n: number }, string>({ n: 1 }, vi.fn(), {
+      equals: (a, b) => a.n === b.n,
+    });
+    const listener = vi.fn();
+    store.subscribe(listener);
+    store.commit(() => ({ n: 2 }));
+    store.commit(() => ({ n: 1 })); // back to what subscribers last saw
+    await flushed();
+    expect(listener).not.toHaveBeenCalled();
+    store.commit(() => ({ n: 3 }));
+    await flushed();
+    expect(listener).toHaveBeenCalledTimes(1);
+    store.commit(() => ({ n: 3 })); // equal to the last notified state
+    await flushed();
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+});

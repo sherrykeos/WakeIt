@@ -1,3 +1,4 @@
+import { createExecutor, type Executor } from "../execution/executor";
 import { type ErrorReporter } from "../shared/contain";
 import { createScope, type CleanupScope } from "../shared/scope";
 import { createReadinessService, type ReadinessService } from "../readiness/service";
@@ -36,6 +37,7 @@ export interface Engine {
   /** Root owner of resources; released in reverse order on dispose, before the store. */
   readonly scope: CleanupScope;
   readonly readiness: ReadinessService;
+  readonly executor: Executor;
   isDisposed(): boolean;
   /** Terminal and idempotent. */
   dispose(): void;
@@ -53,6 +55,8 @@ export function createEngine(config: WakeItConfig, deps: EngineDeps = {}): Engin
   const store = createStore<CoreState, EngineEvent>(createInitialState(normalized), reportError, {
     // Observed-expiry timers exist only while the store has subscribers (AD-21).
     onSubscriberCountChange: () => holder.readiness?.onSubscriberCountChange(),
+    // Add-then-remove of an operation in one synchronous run is not an observable change.
+    equals: (a, b) => a.readiness === b.readiness && a.operations === b.operations,
   });
   let disposed = false;
   const readiness = createReadinessService({
@@ -65,12 +69,26 @@ export function createEngine(config: WakeItConfig, deps: EngineDeps = {}): Engin
     ...(deps.online === undefined ? {} : { online: deps.online }),
   });
   holder.readiness = readiness;
+  const executor = createExecutor({
+    config: normalized,
+    store,
+    scope,
+    // The only coupling between execution and readiness (ReadinessPort).
+    readiness: {
+      prepare: (backend) => readiness.prepare(backend),
+      read: (backend) => readiness.getReadiness(backend),
+      ensureReady: (options) => readiness.ensureReady(options),
+    },
+    isDisposed: () => disposed,
+    reportError,
+  });
 
   return Object.freeze({
     config: normalized,
     store,
     scope,
     readiness,
+    executor,
     isDisposed: () => disposed,
     dispose() {
       if (disposed) return;

@@ -32,6 +32,11 @@ export interface ReadinessService {
   ensureReady(options?: unknown): Promise<void>;
   /** Throws `WakeItConfigError` for no/unknown/ambiguous backend. */
   getReadiness(backend?: unknown): ReadinessSnapshot;
+  /**
+   * Validates a readiness request without side effects and returns the backend id. Throws
+   * `WakeItConfigError` for no/unknown/ambiguous backend or a missing `fetch`/`AbortController`.
+   */
+  prepare(backend?: unknown): string;
   /** The store's subscriber count changed: re-sync observed-expiry timers. */
   onSubscriberCountChange(): void;
 }
@@ -121,7 +126,22 @@ export function createReadinessService(deps: ReadinessServiceDeps): ReadinessSer
     return controller;
   };
 
+  const checkEnvironment = (): void => {
+    if ((deps.fetch ?? platformFetch()) === undefined) {
+      throw configError("no `fetch` implementation is available to probe the backend.");
+    }
+    if (!hasAbortController()) {
+      throw configError("`AbortController` is not available in this environment.");
+    }
+  };
+
   return {
+    prepare(backend) {
+      const id = resolveBackend(backend);
+      checkEnvironment();
+      return id;
+    },
+
     // `async`: every failure below is a rejection, never a synchronous throw.
     async ensureReady(options) {
       const { backend, signal } = readOptions(options);
@@ -134,12 +154,7 @@ export function createReadinessService(deps: ReadinessServiceDeps): ReadinessSer
           message: "The WakeIt client was disposed.",
         });
       }
-      if ((deps.fetch ?? platformFetch()) === undefined) {
-        throw configError("no `fetch` implementation is available to probe the backend.");
-      }
-      if (!hasAbortController()) {
-        throw configError("`AbortController` is not available in this environment.");
-      }
+      checkEnvironment();
       await controllerFor(id).ensureReady(signal);
     },
 

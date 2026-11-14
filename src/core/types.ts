@@ -90,10 +90,39 @@ export interface EnsureReadyOptions {
   readonly signal?: AbortSignal;
 }
 
+/** The single argument `execute` passes to the application's function. */
+export interface ExecuteContext {
+  /** Aborted when cancellation is requested. Honoring it is the function's responsibility. */
+  readonly signal: AbortSignal;
+}
+
+export interface ExecuteOptions {
+  /** Label for per-group thresholds and UI filtering. Default `"default"`. */
+  readonly group?: string;
+  /** Slow-operation threshold in ms for this call. Precedence: call > group > client > default. */
+  readonly thresholdMs?: number;
+  /**
+   * `true` (or an object) makes `execute` wait for backend readiness before invoking `fn`.
+   * `onFailure: "proceed"` invokes `fn` once after an ordinary readiness failure
+   * (`not-ready`, `unreachable`, `offline`, `timeout`, `invalid-response`). It never bypasses an
+   * abort, a configuration error or client disposal, and never shortens the wait.
+   */
+  readonly readiness?:
+    boolean | { readonly backend?: string; readonly onFailure?: "reject" | "proceed" };
+  /**
+   * Developer's attestation that `fn` honors its signal. Default `false`: `cancel(id)` is then
+   * a no-op for this operation and a UI must not offer Cancel.
+   */
+  readonly cancellable?: boolean;
+  /** Caller-owned signal. When it aborts, the signal given to `fn` aborts. Never aborted by WakeIt. */
+  readonly signal?: AbortSignal;
+  /** `false` asks a UI to leave this operation out of the waiting experience. Monitoring continues. */
+  readonly experience?: false;
+}
+
 /**
  * The WakeIt client. Members are function-typed properties (closures), so they are safe to
  * destructure: `const { subscribe } = client`.
- * `execute`, `getOperations` and `cancel` are added by the execution phase.
  */
 export interface WakeIt {
   /**
@@ -119,6 +148,29 @@ export interface WakeIt {
    * After `dispose()`, `subscribe` returns a no-op and the listener is never called.
    */
   readonly subscribe: (listener: () => void) => () => void;
+  /**
+   * Runs `fn` once and tracks it as an operation. The returned promise is `fn`'s own outcome:
+   * the same value, or the same thrown or rejected value, never replaced, retried or raced.
+   * With `readiness`, `fn` is invoked only after the backend is ready; before that point (and
+   * only then) the promise can reject with `WakeItReadinessError` or `WakeItConfigError`.
+   * Never throws synchronously. A signal already aborted when `readiness` is not requested is
+   * passed to `fn` as is.
+   */
+  readonly execute: <T>(
+    fn: (context: ExecuteContext) => T | PromiseLike<T>,
+    options?: ExecuteOptions,
+  ) => Promise<Awaited<T>>;
+  /**
+   * Operations in flight, in start order. Settled operations are removed. The array and every
+   * snapshot are frozen and identity-stable until they change.
+   */
+  readonly getOperations: () => readonly OperationSnapshot[];
+  /**
+   * Requests cancellation of an operation by id: aborts the signal given to its function.
+   * A request, not a claim that anything stopped. A silent no-op for an unknown or settled id,
+   * an operation that is not `cancellable`, and after `dispose()`.
+   */
+  readonly cancel: (operationId: string) => void;
   /** Releases everything the client owns. Terminal and idempotent. */
   readonly dispose: () => void;
 }
@@ -192,16 +244,23 @@ export interface ReadinessSnapshot {
   readonly validUntil?: number;
 }
 
+/** One operation in flight. There is deliberately no `cancelled` state (API_DESIGN 4.1). */
 export interface OperationSnapshot {
+  /** Unique within the client; stable for the operation's life. */
   readonly id: string;
   readonly kind: "request" | "readiness";
   readonly group: string;
   readonly backend?: string;
+  /** `awaiting-readiness`: `fn` not yet invoked. `running`: `fn` invoked, outcome pending. */
   readonly stage: "awaiting-readiness" | "running";
+  /** `slow` once the resolved threshold elapsed since the call; never reverts. */
   readonly slowness: "quiet" | "slow";
   readonly startedAt: number;
   readonly cancellable: boolean;
+  /** A cancellation was requested. Says nothing about whether `fn` stopped. */
   readonly cancelRequested: boolean;
+  /** `false` when the call passed `experience: false`. Honored by UI layers, not by the core. */
+  readonly experience: boolean;
 }
 
 /** The single immutable state tree of one client. Written only by engine commits. */

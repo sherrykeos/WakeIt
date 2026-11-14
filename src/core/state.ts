@@ -24,3 +24,12 @@ export function createInitialState(config: NormalizedConfig): CoreState {
   }
   return Object.freeze({ readiness: Object.freeze(readiness), operations: EMPTY_OPERATIONS });
 }
+
+/** Returns `state` with a new operations list; an empty list is the shared constant. */
+export function withOperations(
+  state: CoreState,
+  operations: readonly OperationSnapshot[],
+): CoreState {
+  const next = operations.length === 0 ? EMPTY_OPERATIONS : Object.freeze(operations);
+  return next === state.operations ? state : Object.freeze({ ...state, operations: next });
+}

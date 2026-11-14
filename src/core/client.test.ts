@@ -12,8 +12,11 @@ describe("createWakeIt", () => {
     const client = createWakeIt(config);
     expect(Object.isFrozen(client)).toBe(true);
     expect(Object.keys(client).sort()).toEqual([
+      "cancel",
       "dispose",
       "ensureReady",
+      "execute",
+      "getOperations",
       "getReadiness",
       "subscribe",
     ]);
@@ -37,8 +40,11 @@ describe("createWakeIt", () => {
     const engine = createEngine({});
     const client = assembleClient(engine);
     expect(Object.keys(createWakeIt({ thresholdMs: 100 })).sort()).toEqual([
+      "cancel",
       "dispose",
       "ensureReady",
+      "execute",
+      "getOperations",
       "getReadiness",
       "subscribe",
     ]);
